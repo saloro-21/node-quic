@@ -547,6 +547,19 @@ if ! cmake --find-package -DNAME=LibDataChannel -DCOMPILER_ID=GNU -DLANGUAGE=CXX
         --parallel ${PARALLEL}
     popd
 fi
+# Build & Install msquic
+if ! cmake --find-package -DNAME=msquic -DCOMPILER_ID=GNU -DLANGUAGE=CXX -DMODE=EXIST >/dev/null 2>/dev/null && \
+    should_build "msquic" "for the quic node-type"; then
+    git clone ${GIT_OPTS} --branch v2.6.3 https://github.com/microsoft/msquic.git
+    mkdir -p msquic/build
+    pushd msquic/build
+
+    cmake ${CMAKE_OPTS} ..
+    cmake --build . \
+        --target install \
+        --parallel ${PARALLEL}
+    popd
+fi
 
 # Build & Install libmodbus
 if ! pkg-config "libmodbus >= 3.1.0" && \

@@ -95,6 +95,7 @@ find_package(Criterion)
 find_package(OpalOrchestra)
 find_package(LibXml2)
 find_package(OpalAsyncApi)
+find_package(msquic CONFIG)
 
 # Check for tools
 find_program(PROTOBUFC_COMPILER NAMES protoc-c)
@@ -218,6 +219,7 @@ cmake_dependent_option(WITH_NODE_NGSI           "Build with ngsi node-type"     
 cmake_dependent_option(WITH_NODE_OPAL_ASYNC     "Build with opal.async node-type"                       "${WITH_DEFAULTS}" "OpalAsyncApi_FOUND" OFF)
 cmake_dependent_option(WITH_NODE_OPAL_ORCHESTRA "Build with opal.orchestra node-type"                   "${WITH_DEFAULTS}" "OpalOrchestra_FOUND; LibXml2_FOUND" OFF)
 cmake_dependent_option(WITH_NODE_OPENDSS        "Build with opendss node-type"                          "${WITH_DEFAULTS}" "OpenDSSC_FOUND" OFF)
+cmake_dependent_option(WITH_NODE_QUIC           "Build with quic node-type"                             "${WITH_DEFAULTS}" "msquic_FOUND" OFF)
 cmake_dependent_option(WITH_NODE_REDIS          "Build with redis node-type"                            "${WITH_DEFAULTS}" "HIREDIS_FOUND; REDISPP_FOUND" OFF)
 cmake_dependent_option(WITH_NODE_RTP            "Build with rtp node-type"                              "${WITH_DEFAULTS}" "re_FOUND" OFF)
 cmake_dependent_option(WITH_NODE_SHMEM          "Build with shmem node-type"                            "${WITH_DEFAULTS}" "HAS_SEMAPHORE; HAS_MMAN" OFF)
@@ -230,6 +232,7 @@ cmake_dependent_option(WITH_NODE_ULDAQ          "Build with uldaq node-type"    
 cmake_dependent_option(WITH_NODE_WEBRTC         "Build with webrtc node-type"                           "${WITH_DEFAULTS}" "WITH_WEB; LibDataChannel_FOUND" OFF)
 cmake_dependent_option(WITH_NODE_WEBSOCKET      "Build with websocket node-type"                        "${WITH_DEFAULTS}" "WITH_WEB" OFF)
 cmake_dependent_option(WITH_NODE_ZEROMQ         "Build with zeromq node-type"                           "${WITH_DEFAULTS}" "LIBZMQ_FOUND; NOT WITHOUT_GPL" OFF)
+
 
 # Set a default for the build type
 if("${CMAKE_BUILD_TYPE}" STREQUAL "")
@@ -328,6 +331,7 @@ add_feature_info(NODE_NGSI              WITH_NODE_NGSI              "Build with 
 add_feature_info(NODE_OPAL_AYSNC        WITH_NODE_OPAL_ASYNC        "Build with opal.async node-type")
 add_feature_info(NODE_OPAL_ORCHESTRA    WITH_NODE_OPAL_ORCHESTRA    "Build with opal.orchestra node-type")
 add_feature_info(NODE_OPENDSS           WITH_NODE_OPENDSS           "Build with opendss node-type")
+add_feature_info(NODE_QUIC              WITH_NODE_QUIC              "Build with quic node-type")
 add_feature_info(NODE_REDIS             WITH_NODE_REDIS             "Build with redis node-type")
 add_feature_info(NODE_RTP               WITH_NODE_RTP               "Build with rtp node-type")
 add_feature_info(NODE_SHMEM             WITH_NODE_SHMEM             "Build with shmem node-type")

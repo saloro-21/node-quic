@@ -45,3 +45,4 @@ discriminator:
     webrtc: ./node-webrtc.yaml
     websocket: ./node-websocket.yaml
     zeromq: ./node-zeromq.yaml
+    quic: ./node-quic.yaml

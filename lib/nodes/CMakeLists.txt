@@ -202,6 +202,12 @@ if(WITH_NODE_WEBRTC)
     list(APPEND LIBRARIES LibDataChannel::LibDataChannel)
 endif()
 
+# Enable QUIC support
+if(WITH_NODE_QUIC)
+    list(APPEND NODE_SRC quic.cpp)
+    list(APPEND LIBRARIES msquic::msquic)
+endif()
+
 add_library(nodes STATIC ${NODE_SRC})
 target_include_directories(nodes PUBLIC ${INCLUDE_DIRS})
 target_link_libraries(nodes PUBLIC ${LIBRARIES})

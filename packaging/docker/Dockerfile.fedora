@@ -33,7 +33,8 @@ RUN dnf -y install \
 	cppcheck \
 	xmlto dblatex rubygem-asciidoctor \
 	psmisc procps-ng \
-	rabbitmq-server mosquitto
+	rabbitmq-server mosquitto \
+	perl-FindBin
 
 # Tools for debugging, coverage, profiling
 RUN pip install \
