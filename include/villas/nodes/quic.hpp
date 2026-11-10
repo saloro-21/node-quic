@@ -9,12 +9,18 @@
 #pragma once
 
 #include <msquic.h>
-#include <cstdint>
+
 #include <condition_variable>
+#include <cstdint>
 #include <mutex>
+#include <vector>
+#include <atomic>
+#include <string>
+
 #include <villas/format.hpp>
 #include <villas/node.hpp>
 #include <villas/node/config.hpp>
+#include <villas/pool.hpp>
 #include <villas/queue_signalled.h>
 #include <villas/timing.hpp>
 
@@ -27,25 +33,56 @@ struct Sample;
 class QuicNode : public Node {
 
 protected:
+  static constexpr char ALPN[] = "villas-quic";
+
+  //Msquic handles
   const QUIC_API_TABLE *api = nullptr;
 
   HQUIC registration = nullptr;
   HQUIC configuration = nullptr;
+  HQUIC listener = nullptr;
   HQUIC connection = nullptr;
   HQUIC stream = nullptr;
-  HQUIC listener = nullptr;
 
+
+  //Connection configuration
   std::string host;
-  uint16_t port = 0;
+  uint16_t port = 4433;
   std::string mode = "client";
   std::string transport = "datagram";
-  std::mutex shutdownMutex;
-  std::condition_variable shutdownCondition;
-  bool connectionShutdownComplete = false;
 
+  //Certificate paths
+  std::string certificateFile;
+  std::string privateKeyFile;
+  std::string caCertificateFile;
+
+  //Datagram state
+  std::atomic<bool> datagramSendEnabled{false};
+  std::atomic<uint16_t> maxDatagramSendLength{0};
+
+  //Synchronization
+  std::mutex connectionMutex;
+  std::condition_variable shutdownCondition;
+  bool connectionShutdownComplete = true;
+
+  //Sample handling
   Format::Ptr formatter;
-  struct CQueueSignalled queue;
-  struct Pool pool;
+  struct CQueueSignalled queue = {};
+  struct Pool pool = {};
+
+  bool poolInitialized = false;
+  bool queueInitialized = false;
+
+  struct DatagramSendContext {
+    std::vector<uint8_t> data;
+    QUIC_BUFFER buffer;
+  };
+
+  struct StreamSendContext {
+    std::vector<uint8_t> data;
+    QUIC_BUFFER buffer;
+  };
+  std::vector<uint8_t> streamReceiveBuffer; //length prefixed messages
 
   int _read(struct Sample *smps[], unsigned cnt) override;
   int _write(struct Sample *smps[], unsigned cnt) override;
@@ -93,11 +130,9 @@ class QuicNodeFactory : public NodeFactory {
 public:
   using NodeFactory::NodeFactory;
 
-  Node *make(const uuid_t &id = {}, const std::string &nme = "") override {
-    auto *n = new QuicNode(id, nme);
-
+  Node *make(const uuid_t &id = {}, const std::string &name = "") override {
+    auto *n = new QuicNode(id, name);
     init(n);
-
     return n;
   }
 
@@ -107,14 +142,16 @@ public:
            (int)NodeFactory::Flags::SUPPORTS_POLL;
   }
 
-  std::string getName() const override { return "quic"; }
+  std::string getName() const override {
+    return "quic";
+  }
 
   std::string getDescription() const override {
-    return "QUIC Communication";
+    return "QUIC Communication via msquic";
   }
 
   int start(SuperNode *sn) override;
 };
 
-} // namespace node
-} // namespace villas
+}
+}

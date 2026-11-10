@@ -35,6 +35,18 @@ properties:
     default: datagram
     description: QUIC transport mode.
 
+  certificate:
+    type: string
+    description: Path to the server certificate file
+
+  private_key:
+    type: string
+    description: Path to the server private key file
+
+  ca_certificate:
+    type: string
+    description: Path to the CA certificate used by the client
+
   format:
     default: villas.binary
     $ref: ./format.yaml
