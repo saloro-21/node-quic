@@ -284,56 +284,63 @@ int QuicNode::prepare()
 }
 
 QUIC_STATUS QUIC_API QuicNode::listenerCallback(
-    HQUIC listener,
-    void *context,
-    QUIC_LISTENER_EVENT *event
+  HQUIC listener,
+  void *context,
+  QUIC_LISTENER_EVENT *event
 )
 {
-    auto *node = static_cast<QuicNode *>(context);
+  auto *node = static_cast<QuicNode *>(context);
 
-    switch (event->Type) {
-    case QUIC_LISTENER_EVENT_NEW_CONNECTION: {
-        HQUIC connection = event->NEW_CONNECTION.Connection;
-        {
-          std::lock_guard<std::mutex> lock(node->connectionMutex);
+  switch (event->Type) {
+  case QUIC_LISTENER_EVENT_NEW_CONNECTION: {
+      HQUIC connection = event->NEW_CONNECTION.Connection;
+      {
+        std::lock_guard<std::mutex> lock(node->connectionMutex);
 
-          if (node->connection != nullptr) {
-                node->logger->warn(
-                    "Rejecting incoming QUIC connection: "
-                    "another connection is already active"
-                );
+        if (node->connection != nullptr) {
+              node->logger->warn(
+                  "Rejecting incoming QUIC connection: "
+                  "another connection is already active"
+              );
 
-                return QUIC_STATUS_CONNECTION_REFUSED;
+              return QUIC_STATUS_CONNECTION_REFUSED;
+        }
+
+        node->connection = connection;
+        node->connectionShutdownComplete = false;
+      }
+
+      node->api->SetCallbackHandler(
+        connection,
+        (void *)connectionCallback,
+        node
+      );
+
+      QUIC_STATUS status = node->api->ConnectionSetConfiguration(
+          connection,
+          node->configuration
+      );
+
+      if (QUIC_FAILED(status)) {
+          node->logger->error(
+              "Failed to configure incoming QUIC connection: {}",
+              static_cast<unsigned>(status)
+          );
+
+          {
+            std::lock_guard<std::mutex> lock(node->connectionMutex);
+            if (node->connection == connection)
+              node->connection = nullptr;
+            node->connectionShutdownComplete = true;
           }
-
-          node->connection = connection;
-          node->connectionShutdownComplete = false;
-        }
-
-        node->api->SetCallbackHandler(
-    connection,
-    (void *)connectionCallback,
-    node
-        );
-
-        QUIC_STATUS status = node->api->ConnectionSetConfiguration(
-            connection,
-            node->configuration
-        );
-
-        if (QUIC_FAILED(status)) {
-            node->logger->error(
-                "Failed to configure incoming QUIC connection: {}",
-                status
-            );
-        }
-
-        return status;
+          node->shutdownCondition.notify_all();
+      }
+      return status;
     }
 
     default:
-        return QUIC_STATUS_SUCCESS;
-    }
+      return QUIC_STATUS_SUCCESS;
+  }
 }
 
 
@@ -471,13 +478,24 @@ QUIC_STATUS QUIC_API QuicNode::connectionCallback(
 
   case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
       node->logger->info("QUIC connection shutdown complete");
-      node ->api->ConnectionClose(connection);
+
       {
           std::lock_guard<std::mutex> lock(node->connectionMutex);
-          if (node->connection == connection)
+          if (node->connection == connection) {
             node->connection = nullptr;
+            node->stream = nullptr;
+          }
+      }
 
-          node->connectionShutdownComplete = true;
+      node->datagramSendEnabled = false;
+      node->maxDatagramSendLength = 0;
+
+      node->api->ConnectionClose(connection);
+
+      {
+        std::lock_guard<std::mutex> lock(node->connectionMutex);
+        if (node->connection == nullptr)
+            node->connectionShutdownComplete = true;
       }
 
       node->shutdownCondition.notify_all();
@@ -785,18 +803,15 @@ int QuicNode::stop()
         api->ListenerClose(listener);
         listener = nullptr;
     }
-    HQUIC connectiontoshutdown = nullptr;
     {
         std::unique_lock<std::mutex> lock(connectionMutex);
-        connectiontoshutdown = connection;
 
-        if (connectiontoshutdown != nullptr) {
+        if (connection != nullptr) {
             api->ConnectionShutdown(
                 connection,
                 QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
                 0
             );
-            std::unique_lock<std::mutex> lock(connectionMutex);
 
             shutdownCondition.wait(lock, [this] {
                 return connectionShutdownComplete;
@@ -863,35 +878,41 @@ json_t *QuicNode::_readStatus() const
 }
 int QuicNode::_write(struct Sample *smps[], unsigned cnt)
 {
-    if (transport == "datagram") {
-        return _writeDatagram(smps, cnt);
-    }
+  pthread_testcancel();
 
-    if (transport == "stream") {
-        return _writeStreams(smps, cnt);
-    }
+  if (transport == "datagram") {
+      return _writeDatagram(smps, cnt);
+  }
 
-    logger->error("Unsupported QUIC transport: {}", transport);
-    return -1;
+  if (transport == "stream") {
+      return _writeStreams(smps, cnt);
+  }
+
+  logger->error("Unsupported QUIC transport: {}", transport);
+  return -1;
 }
 
 int QuicNode::_writeDatagram(struct Sample *smps[], unsigned cnt)
 {
-  if (transport != "datagram") {
-      logger->error("DATAGRAM requested but transport is not datagram");
-      return -1;
-  }
 
   if (!datagramSendEnabled.load()) {
-      logger->error("QUIC DATAGRAM sending is currently disabled");
-      return -1;
+      logger->trace("QUIC DATAGRAM sending is not ready. dropping samples");
+      return 0;
   }
 
   const uint16_t maxLength = maxDatagramSendLength.load();
 
   if (maxLength == 0) {
-      logger->error("Invalid QUIC DATAGRAM maximum payload length");
-      return -1;
+      logger->trace("IQUIC DATAGRAM maximum payload length not known yet");
+      return 0;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(connectionMutex);
+    if (connection == nullptr) {
+      logger->trace("QUIC DATAGRAM sending requested while disconnected");
+      return 0;
+    }
   }
 
   auto *sendContext = new DatagramSendContext{};
@@ -929,9 +950,9 @@ int QuicNode::_writeDatagram(struct Sample *smps[], unsigned cnt)
     std::lock_guard<std::mutex> lock(connectionMutex);
 
     if (connection == nullptr) {
-    logger->error("QUIC DATAGRAM sending requested while disconnected");
+    logger->trace("QUIC DATAGRAM sending requested while disconnected");
     delete sendContext;
-    return -1;
+    return 0;
     }
 
     status = api->DatagramSend(
@@ -944,7 +965,7 @@ int QuicNode::_writeDatagram(struct Sample *smps[], unsigned cnt)
   }
 
   if (QUIC_FAILED(status)) {
-      logger->error("Failed to send QUIC DATAGRAM data: {}", status);
+      logger->error("Failed to send QUIC DATAGRAM data: {}", static_cast<unsigned>(status));
       delete sendContext;
       return -1;
   }
@@ -956,9 +977,13 @@ int QuicNode::_writeDatagram(struct Sample *smps[], unsigned cnt)
 
 int QuicNode::_writeStreams(struct Sample *smps[], unsigned cnt) //STREAM does not use maximum payload length
 {
-  if (transport != "stream") {
-      logger->error("STREAM requested but transport is not stream");
-      return -1;
+
+  {
+    std::lock_guard<std::mutex> lock(connectionMutex);
+    if (connection == nullptr) {
+      logger->trace("QUIC STREAM sending requested while disconnected");
+      return 0;
+    }
   }
   constexpr size_t maxStreamPayloadLength = 1024*1024;
   auto *sendContext = new StreamSendContext{};
@@ -1003,9 +1028,9 @@ int QuicNode::_writeStreams(struct Sample *smps[], unsigned cnt) //STREAM does n
     std::lock_guard<std::mutex> lock(connectionMutex);
 
     if (connection == nullptr) {
-      logger->error("QUIC STREAM sending requested while disconnected");
+      logger->trace("QUIC STREAM sending requested while disconnected");
       delete sendContext;
-      return -1;
+      return 0;
     }
 
     if (stream == nullptr){
@@ -1018,7 +1043,7 @@ int QuicNode::_writeStreams(struct Sample *smps[], unsigned cnt) //STREAM does n
       );
 
       if (QUIC_FAILED(status)) {
-        logger->error("Failed to open QUIC STREAM: {}", status);
+        logger->error("Failed to open QUIC STREAM: {}", static_cast<unsigned>(status));
         delete sendContext;
         return -1;
       }
@@ -1029,7 +1054,7 @@ int QuicNode::_writeStreams(struct Sample *smps[], unsigned cnt) //STREAM does n
       );
 
       if (QUIC_FAILED(status)) {
-        logger->error("Failed to start QUIC STREAM: {}", status);
+        logger->error("Failed to start QUIC STREAM: {}", static_cast<unsigned>(status));
         api->StreamClose(stream);
         stream = nullptr;
         delete sendContext;
