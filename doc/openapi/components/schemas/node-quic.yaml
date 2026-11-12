@@ -27,7 +27,7 @@ properties:
     maximum: 65535
     description: UDP port used by the QUIC connection.
 
-  transport:
+  transport_mode:
     type: string
     enum:
       - datagram

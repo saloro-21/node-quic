@@ -83,9 +83,12 @@ protected:
     QUIC_BUFFER buffer;
   };
   std::vector<uint8_t> streamReceiveBuffer; //length prefixed messages
+  std::mutex streamReceiveMutex;
 
   int _read(struct Sample *smps[], unsigned cnt) override;
   int _write(struct Sample *smps[], unsigned cnt) override;
+  int _writeDatagram(struct Sample *smps[], unsigned cnt);
+  int _writeStreams(struct Sample *smps[], unsigned cnt);
 
   json_t *_readStatus() const override;
 
