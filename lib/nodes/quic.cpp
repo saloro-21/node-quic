@@ -232,20 +232,6 @@ int QuicNode::prepare()
     return -1;
   }
 
-  if (QUIC_FAILED(status)) {
-    logger->error("Failed to load MsQuic credentials: {}", status);
-
-    api->ConfigurationClose(configuration);
-    configuration = nullptr;
-
-    api->RegistrationClose(registration);
-    registration = nullptr;
-
-    MsQuicClose(api);
-    api = nullptr;
-
-    return -1;
-  }
 
   int ret = Node::prepare();
   if (ret)
